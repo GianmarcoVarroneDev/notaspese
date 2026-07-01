@@ -384,7 +384,6 @@ function App() {
             <Icon name="receipt" size={22} color="#C9D3C2" />
             <div>
               <div style={{ fontFamily:serif, fontSize:20, fontWeight:600, lineHeight:1 }}>Nota Spese</div>
-              <div style={{ fontSize:11, color:"#A9B5A6" }}>database su Turso · sincronizzato</div>
             </div>
           </div>
           <button onClick={()=>setShowSettings(true)} title="Impostazioni" style={{ background:"transparent", border:"1px solid #3a4a41", color:"#C9D3C2", borderRadius:8, padding:8, display:"grid", placeItems:"center" }}>
@@ -574,7 +573,7 @@ function ExpenseForm({ initial, config, busy, onCancel, onSave }) {
       <input ref={fileRef} type="file" accept="image/*,application/pdf,.pdf" style={{ display:"none" }} onChange={e=>handleFile(e.target.files&&e.target.files[0])} />
       <button onClick={()=>fileRef.current&&fileRef.current.click()} disabled={scanning}
         style={{ width:"100%", border:`1.5px dashed ${C.green}`, background:"rgba(47,111,78,.06)", borderRadius:12, padding:16, marginBottom:18, color:C.greenDark, display:"flex", alignItems:"center", justifyContent:"center", gap:10, fontSize:14, fontWeight:600 }}>
-        {scanning ? <><Spinner size={18} /> Sto leggendo il documento…</> : <><Icon name="camera" size={18} /> Carica una foto o un PDF — la compilo io</>}
+        {scanning ? <><Spinner size={18} /> Sto leggendo il documento…</> : <><Icon name="camera" size={18} /> Carica una foto o un PDF</>}
       </button>
       {scanErr && (
         <div style={{ display:"flex", gap:8, alignItems:"flex-start", background:"#FBEEE9", border:"1px solid #E9C4B6", color:"#8A3A22", borderRadius:10, padding:"10px 12px", marginBottom:16, fontSize:13 }}>
