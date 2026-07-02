@@ -1,0 +1,913 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#1E2B24" />
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+<meta http-equiv="Pragma" content="no-cache" />
+<meta http-equiv="Expires" content="0" />
+<title>Nota Spese</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<style>
+  html, body { margin: 0; padding: 0; background: #E7EBE3; }
+  body { font-family: 'Sora', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
+  * { -webkit-tap-highlight-color: transparent; box-sizing: border-box; }
+  .grid-2 { display: grid; gap: 12px; grid-template-columns: 1fr; }
+  .grid-3 { display: grid; gap: 12px; grid-template-columns: 1fr 1fr 1fr; }
+  .grid-2 > *, .grid-3 > * { min-width: 0; }
+  input, select, textarea { min-width: 0; max-width: 100%; width: 100%; box-sizing: border-box; }
+  input[type="date"], input[type="time"], input[type="datetime-local"] { -webkit-appearance: none; appearance: none; display: block; }
+  @media (min-width: 520px) { .grid-2 { grid-template-columns: 1fr 1fr; } }
+  @media (max-width: 360px) { .grid-3 { grid-template-columns: 1fr 1fr; } }
+  .spin { animation: sp 1s linear infinite; }
+  @keyframes sp { to { transform: rotate(360deg); } }
+  .lift { transition: transform .12s ease, box-shadow .12s ease; }
+  .lift:active { transform: translateY(1px); }
+  button { cursor: pointer; }
+  input:focus, select:focus, textarea:focus { border-color: #2F6F4E !important; box-shadow: 0 0 0 3px rgba(47,111,78,.12); }
+  .print-area { display: none; }
+  @media print {
+    .screen { display: none !important; }
+    .print-area { display: block !important; }
+    @page { margin: 14mm; }
+  }
+</style>
+<script type="importmap">
+{
+  "imports": {
+    "react": "https://esm.sh/react@18",
+    "react/": "https://esm.sh/react@18/",
+    "react-dom": "https://esm.sh/react-dom@18",
+    "react-dom/": "https://esm.sh/react-dom@18/",
+    "@libsql/client/web": "https://esm.sh/@libsql/client/web"
+  }
+}
+</script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel" data-type="module" data-presets="react">
+import React from "react";
+import { createRoot } from "react-dom/client";
+import { createClient } from "@libsql/client/web";
+import { jsPDF } from "https://esm.sh/jspdf@2";
+import autoTable from "https://esm.sh/jspdf-autotable@3";
+const { useState, useEffect, useMemo, useRef } = React;
+
+/* ----------------------------- Design tokens ----------------------------- */
+const C = {
+  bg: "#E7EBE3", surface: "#FCFBF7", paper: "#F4F2EA", ink: "#1E2B24",
+  muted: "#6E7A70", line: "#D4D8CC", green: "#2F6F4E", greenDark: "#245A3F",
+  amber: "#B87514", red: "#B23A3A",
+};
+const serif = "'Sora', system-ui, sans-serif";
+const mono = 'ui-monospace, "SF Mono", Menlo, Consolas, monospace';
+const sans = "'Sora', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif";
+
+const CATEGORIES = ["Vitto","Trasporti","Carburante","Rimborso km","Pedaggi/Telepass","Parcheggi","Alloggio","Cancelleria","Attrezzature","Software","Rappresentanza","Formazione","Utenze","Altro"];
+const METHODS = ["Carta","Contanti","Bonifico","Altro"];
+const APP_VERSION = "v10";
+
+/* ----------------------------- Icons ----------------------------- */
+const ICONS = {
+  plus:"M12 5v14M5 12h14",
+  x:"M18 6 6 18M6 6l12 12",
+  trash:"M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6M10 11v6M14 11v6",
+  pencil:"M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z",
+  settings:"M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6",
+  receipt:"M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1-2-1ZM8 7h8M8 11h8M8 15h5",
+  alert:"M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L14.7 3.9a2 2 0 0 0-3.4 0ZM12 9v4M12 17h.01",
+  chevron:"M6 9l6 6 6-6",
+  camera:"M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2zM12 17a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z",
+  file:"M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M9 13h6M9 17h6",
+  db:"M12 2c4.4 0 8 1.3 8 3s-3.6 3-8 3-8-1.3-8-3 3.6-3 8-3ZM4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3",
+  check:"M20 6 9 17l-5-5",
+};
+function Icon({ name, size=20, color, style }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color||"currentColor"}
+      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={style}>
+      <path d={ICONS[name]} />
+    </svg>
+  );
+}
+function Spinner({ size=18, color }) {
+  return (
+    <svg className="spin" width={size} height={size} viewBox="0 0 24 24" fill="none"
+      stroke={color||"currentColor"} strokeWidth="2.5" strokeLinecap="round">
+      <path d="M21 12a9 9 0 1 1-6.2-8.5" />
+    </svg>
+  );
+}
+
+/* ----------------------------- Config (localStorage) ----------------------------- */
+const CFG_KEY = "notaspese_config_v1";
+function loadConfig() {
+  try { return { tursoUrl:"", tursoToken:"", orKey:"", orModel:"google/gemini-2.5-flash", kmTariffa:"" , ...JSON.parse(localStorage.getItem(CFG_KEY)||"{}") }; }
+  catch { return { tursoUrl:"", tursoToken:"", orKey:"", orModel:"google/gemini-2.5-flash", kmTariffa:"" }; }
+}
+function saveConfig(c) { try { localStorage.setItem(CFG_KEY, JSON.stringify(c)); } catch(e){} }
+
+/* ----------------------------- libSQL / Turso layer ----------------------------- */
+let client = null;
+async function connectDb(url, token) {
+  const httpUrl = url.trim().replace(/^libsql:\/\//, "https://");
+  client = createClient({ url: httpUrl, authToken: token.trim() });
+  await client.execute(`CREATE TABLE IF NOT EXISTS spese (
+    id TEXT PRIMARY KEY, data TEXT, esercente TEXT, categoria TEXT, descrizione TEXT,
+    importo REAL, iva REAL, aliquota REAL, metodo TEXT, created_at TEXT)`);
+  await client.execute(`CREATE TABLE IF NOT EXISTS impostazioni (chiave TEXT PRIMARY KEY, valore TEXT)`);
+  // Migrations: add columns if not present
+  for (const col of ["km REAL", "tariffa REAL", "foto TEXT"]) {
+    try { await client.execute(`ALTER TABLE spese ADD COLUMN ${col}`); } catch (e) { /* already exists */ }
+  }
+}
+async function dbLoadSpese() {
+  const rs = await client.execute("SELECT * FROM spese ORDER BY data DESC, created_at DESC");
+  return rs.rows.map(r => ({
+    id: r.id, date: r.data || "", merchant: r.esercente || "", category: r.categoria || "Altro",
+    description: r.descrizione || "", amount: Number(r.importo)||0, iva: Number(r.iva)||0,
+    rate: Number(r.aliquota)||0, method: r.metodo || "Carta",
+    km: Number(r.km)||0, tariffa: Number(r.tariffa)||0, foto: r.foto || "",
+  }));
+}
+async function dbUpsertSpesa(e) {
+  await client.execute({
+    sql: `INSERT INTO spese (id,data,esercente,categoria,descrizione,importo,iva,aliquota,metodo,km,tariffa,foto,created_at)
+          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+          ON CONFLICT(id) DO UPDATE SET data=excluded.data,esercente=excluded.esercente,
+          categoria=excluded.categoria,descrizione=excluded.descrizione,importo=excluded.importo,
+          iva=excluded.iva,aliquota=excluded.aliquota,metodo=excluded.metodo,km=excluded.km,tariffa=excluded.tariffa,foto=excluded.foto`,
+    args: [e.id, e.date, e.merchant, e.category, e.description, e.amount, e.iva, e.rate, e.method, e.km||0, e.tariffa||0, e.foto||"", new Date().toISOString()],
+  });
+}
+async function dbDeleteSpesa(id) { await client.execute({ sql: "DELETE FROM spese WHERE id=?", args: [id] }); }
+async function dbDeleteMonth(ym) { await client.execute({ sql: "DELETE FROM spese WHERE data LIKE ?", args: [ym + "-%"] }); }
+async function dbLoadIntest() {
+  const rs = await client.execute("SELECT chiave,valore FROM impostazioni");
+  const o = { nome:"", piva:"", nota:"", destNome:"", destPiva:"", destInd:"" };
+  rs.rows.forEach(r => { if (r.chiave in o) o[r.chiave] = r.valore || ""; });
+  return o;
+}
+async function dbSaveIntest(it) {
+  await client.batch(Object.entries(it).map(([k,v]) => ({
+    sql: "INSERT INTO impostazioni (chiave,valore) VALUES (?,?) ON CONFLICT(chiave) DO UPDATE SET valore=excluded.valore",
+    args: [k, v || ""],
+  })), "write");
+}
+
+/* ----------------------------- Helpers ----------------------------- */
+const euro = (n) => new Intl.NumberFormat("it-IT",{style:"currency",currency:"EUR"}).format(Number(n)||0);
+const dItalian = (iso) => { if(!iso) return "—"; const [y,m,d]=iso.split("-"); return d&&m&&y?`${d}/${m}/${y}`:iso; };
+const MNAMES = ["gen","feb","mar","apr","mag","giu","lug","ago","set","ott","nov","dic"];
+const MNAMES_FULL = ["Gennaio","Febbraio","Marzo","Aprile","Maggio","Giugno","Luglio","Agosto","Settembre","Ottobre","Novembre","Dicembre"];
+const monthLabel = (ym) => { if(ym==="all") return "Tutte le spese"; const [y,m]=ym.split("-"); return `${MNAMES[+m-1]} ${y}`; };
+const monthLabelFull = (ym) => { if(ym==="all") return "Tutte le spese"; const [y,m]=ym.split("-"); return `${MNAMES_FULL[+m-1]} ${y}`; };
+const todayISO = () => new Date().toISOString().slice(0,10);
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,6);
+function fileToBase64(file) {
+  return new Promise((res,rej)=>{ const r=new FileReader(); r.onload=()=>res(String(r.result).split(",")[1]); r.onerror=()=>rej(new Error("Lettura file non riuscita")); r.readAsDataURL(file); });
+}
+function resizeImage(file, maxEdge=1400, quality=0.72) {
+  return new Promise((res, rej) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      let w = img.naturalWidth, h = img.naturalHeight;
+      if (!w || !h) { rej(new Error("Dimensioni immagine non valide")); return; }
+      const scale = Math.min(1, maxEdge / Math.max(w, h));
+      w = Math.round(w * scale); h = Math.round(h * scale);
+      try {
+        const canvas = document.createElement("canvas");
+        canvas.width = w; canvas.height = h;
+        canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+        const out = canvas.toDataURL("image/jpeg", quality);
+        if (!out || out.length < 100) { rej(new Error("Output immagine vuoto")); return; }
+        res(out);
+      } catch (e) { rej(e); }
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); rej(new Error("Immagine non leggibile")); };
+    img.src = url;
+  });
+}
+function loadImage(dataUrl) {
+  return new Promise((res, rej) => {
+    const img = new Image();
+    img.onload = () => res(img);
+    img.onerror = () => rej(new Error("Immagine non caricabile"));
+    img.src = dataUrl;
+  });
+}
+let _pdfjs = null;
+async function ensurePdfjs() {
+  if (_pdfjs) return _pdfjs;
+  const lib = await import("https://esm.sh/pdfjs-dist@4");
+  try { lib.GlobalWorkerOptions.workerSrc = "https://esm.sh/pdfjs-dist@4/build/pdf.worker.min.mjs"; } catch (e) {}
+  _pdfjs = lib;
+  return lib;
+}
+async function pdfToImage(file, maxEdge=1400) {
+  const lib = await ensurePdfjs();
+  const buf = await file.arrayBuffer();
+  const pdf = await lib.getDocument({ data: buf }).promise;
+  const page = await pdf.getPage(1);
+  const base = page.getViewport({ scale: 1 });
+  const scale = Math.min(2.2, maxEdge / Math.max(base.width, base.height));
+  const vp = page.getViewport({ scale });
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(vp.width); canvas.height = Math.round(vp.height);
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+  await page.render({ canvasContext: ctx, viewport: vp }).promise;
+  const out = canvas.toDataURL("image/jpeg", 0.82);
+  if (!out || out.length < 100) throw new Error("Render PDF vuoto");
+  return out;
+}
+
+/* ----------------------------- AI extraction (OpenRouter) ----------------------------- */
+async function scanReceipt(payload, cfg) {
+  if (!cfg.orKey) throw new Error("Manca la chiave OpenRouter — aprila nelle Impostazioni.");
+  const fileBlock = payload.isPdf
+    ? { type: "file", file: { filename: payload.filename || "documento.pdf", file_data: payload.dataUrl } }
+    : { type: "image_url", image_url: { url: payload.dataUrl } };
+  const prompt = `Sei un assistente contabile. Analizza questa ricevuta o fattura ed estrai i dati.
+Rispondi ESCLUSIVAMENTE con un oggetto JSON valido (nessun testo extra, niente backticks) con queste chiavi:
+data (YYYY-MM-DD, stringa vuota se illeggibile), esercente, importo (numero, totale IVA inclusa, punto come decimale),
+iva (numero in euro o 0), aliquota (numero percentuale o 0), categoria (uno tra ${CATEGORIES.join(", ")}),
+metodo (Carta/Contanti/Bonifico/Altro), descrizione (breve). Se un campo non è leggibile usa "" o 0.`;
+  const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Authorization": "Bearer " + cfg.orKey,
+      "Content-Type": "application/json",
+      "HTTP-Referer": location.origin,
+      "X-Title": "Nota Spese",
+    },
+    body: JSON.stringify({
+      model: cfg.orModel || "google/gemini-2.5-flash",
+      messages: [{ role: "user", content: [
+        { type: "text", text: prompt },
+        fileBlock,
+      ]}],
+      response_format: { type: "json_object" },
+    }),
+  });
+  if (!res.ok) throw new Error("OpenRouter " + res.status + ": " + (await res.text()).slice(0,180));
+  const data = await res.json();
+  let text = (data?.choices?.[0]?.message?.content || "").replace(/```json|```/g, "").trim();
+  return JSON.parse(text);
+}
+
+/* ----------------------------- UI atoms ----------------------------- */
+function Field({ label, hint, children }) {
+  return (
+    <label style={{ display:"block", marginBottom:14 }}>
+      <span style={{ display:"block", fontSize:11, letterSpacing:".06em", textTransform:"uppercase", color:C.muted, marginBottom:5 }}>{label}</span>
+      {children}
+      {hint && <span style={{ display:"block", fontSize:11, color:C.muted, marginTop:4 }}>{hint}</span>}
+    </label>
+  );
+}
+const inputStyle = { width:"100%", boxSizing:"border-box", padding:"11px 12px", border:`1px solid ${C.line}`, borderRadius:8, background:"#fff", color:C.ink, fontSize:16, fontFamily:sans, outline:"none" };
+function IconBtn({ children, onClick, title, danger }) {
+  return <button onClick={onClick} title={title} style={{ background:"transparent", border:`1px solid ${C.line}`, borderRadius:8, padding:7, color:danger?C.red:C.muted, display:"grid", placeItems:"center" }}>{children}</button>;
+}
+function Stat({ label, value, big, color }) {
+  return (
+    <div style={{ padding:"16px", borderRight:`1px solid ${C.line}` }}>
+      <div style={{ fontSize:11, letterSpacing:".05em", textTransform:"uppercase", color:C.muted }}>{label}</div>
+      <div style={{ fontFamily:mono, fontWeight:700, fontSize:big?24:19, color:color||C.ink, marginTop:4 }}>{value}</div>
+    </div>
+  );
+}
+function ModalShell({ title, onCancel, children, footer }) {
+  return (
+    <div onClick={onCancel} style={{ position:"fixed", inset:0, background:"rgba(20,28,24,.5)", display:"flex", alignItems:"flex-end", justifyContent:"center", zIndex:50 }}>
+      <div onClick={e=>e.stopPropagation()} style={{ background:C.paper, width:"100%", maxWidth:560, maxHeight:"92dvh", display:"flex", flexDirection:"column", borderRadius:"18px 18px 0 0", boxShadow:"0 -8px 40px rgba(0,0,0,.25)", overflow:"hidden" }}>
+        <div style={{ flexShrink:0, background:C.paper, borderBottom:`1px solid ${C.line}`, padding:"16px 18px", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+          <h2 style={{ margin:0, fontFamily:serif, fontSize:18 }}>{title}</h2>
+          <IconBtn onClick={onCancel} title="Chiudi"><Icon name="x" size={18} /></IconBtn>
+        </div>
+        <div style={{ flex:1, minHeight:0, overflowY:"auto", WebkitOverflowScrolling:"touch", padding:18 }}>{children}</div>
+        {footer && <div style={{ flexShrink:0, background:C.paper, borderTop:`1px solid ${C.line}`, padding:"14px 14px calc(14px + env(safe-area-inset-bottom))" }}>{footer}</div>}
+      </div>
+    </div>
+  );
+}
+
+/* ----------------------------- PDF generation ----------------------------- */
+function eurNum(n){ return new Intl.NumberFormat("it-IT",{minimumFractionDigits:2,maximumFractionDigits:2}).format(Number(n)||0) + " \u20AC"; }
+async function generatePdf({ intest, period, expenses, totals, withPhotos }) {
+  const doc = new jsPDF({ orientation:"landscape", unit:"pt", format:"a4" });
+  const pageW = doc.internal.pageSize.getWidth();   // ~842 (landscape)
+  const M = 40;
+  doc.setFont("helvetica","bold"); doc.setFontSize(22); doc.setTextColor(30,43,36);
+  doc.text("Nota Spese", M, 52);
+  doc.setFont("helvetica","normal"); doc.setFontSize(11); doc.setTextColor(90,90,90);
+  doc.text(monthLabelFull(period), M, 70);
+  let ry = 44;
+  if (intest.nome) { doc.setFont("helvetica","bold"); doc.setFontSize(11); doc.setTextColor(30,43,36); doc.text(String(intest.nome), pageW-M, ry, {align:"right"}); ry+=15; }
+  doc.setFont("helvetica","normal"); doc.setFontSize(10); doc.setTextColor(90,90,90);
+  if (intest.piva) { doc.text(String(intest.piva), pageW-M, ry, {align:"right"}); ry+=14; }
+  doc.text("Emessa il " + new Date().toLocaleDateString("it-IT"), pageW-M, ry, {align:"right"});
+  doc.setDrawColor(30,43,36); doc.setLineWidth(1.2); doc.line(M, 82, pageW-M, 82);
+
+  // Recipient block ("Spett.le")
+  let sy = 100;
+  const hasDest = intest.destNome || intest.destPiva || intest.destInd;
+  if (hasDest) {
+    doc.setFont("helvetica","bold"); doc.setFontSize(10); doc.setTextColor(30,43,36);
+    doc.text("Spett.le", M, sy); sy += 14;
+    doc.setFont("helvetica","normal"); doc.setFontSize(10); doc.setTextColor(50,50,50);
+    if (intest.destNome) { doc.text(String(intest.destNome), M, sy); sy += 13; }
+    if (intest.destPiva) { doc.text(String(intest.destPiva), M, sy); sy += 13; }
+    if (intest.destInd) { doc.text(String(intest.destInd), M, sy); sy += 13; }
+    sy += 8;
+  }
+  const tableStart = hasDest ? sy : 96;
+
+  const sorted = [...expenses].sort((a,b)=>(a.date||"").localeCompare(b.date||""));
+  const withFoto = sorted.filter(e => e.foto);
+  const fotoNum = {}; withFoto.forEach((e,i)=>{ fotoNum[e.id] = i+1; });
+
+  const body = sorted.map(e => {
+    const imp = (Number(e.amount)||0)-(Number(e.iva)||0);
+    let desc = e.description || "";
+    if (e.category==="Rimborso km" && Number(e.km)>0) {
+      const detail = e.km + " km × " + eurNum(e.tariffa).replace(" \u20AC","") + " €/km";
+      desc = desc ? desc + " — " + detail : detail;
+    }
+    if (withPhotos && fotoNum[e.id]) desc = (desc ? desc + " " : "") + "(all. " + fotoNum[e.id] + ")";
+    return [dItalian(e.date), e.merchant||"", e.category, desc, e.method||"", eurNum(imp), eurNum(e.iva), eurNum(e.amount)];
+  });
+  autoTable(doc, {
+    startY: tableStart,
+    head: [["Data","Esercente / tratta","Categoria","Descrizione","Metodo","Imponibile","IVA","Totale"]],
+    body,
+    foot: [[ { content:"Totali ("+totals.count+" spese)", colSpan:5, styles:{halign:"right"} }, eurNum(totals.imponibile), eurNum(totals.iva), eurNum(totals.total) ]],
+    styles: { font:"helvetica", fontSize:8, cellPadding:4, textColor:[40,40,40], lineColor:[220,220,220], lineWidth:0.5, valign:"middle" },
+    headStyles: { fillColor:[30,43,36], textColor:[255,255,255], fontStyle:"bold" },
+    footStyles: { fillColor:[244,242,234], textColor:[20,20,20], fontStyle:"bold" },
+    columnStyles: {
+      0: { cellWidth: 58 },
+      1: { cellWidth: 155 },
+      2: { cellWidth: 80 },
+      3: { cellWidth: 205 },
+      4: { cellWidth: 60 },
+      5: { cellWidth: 66, halign:"right" },
+      6: { cellWidth: 52, halign:"right" },
+      7: { cellWidth: 66, halign:"right" },
+    },
+    margin: { left:M, right:M },
+  });
+  let fy = (doc.lastAutoTable ? doc.lastAutoTable.finalY : tableStart) + 22;
+  if (intest.nota) {
+    doc.setFont("helvetica","normal"); doc.setFontSize(9); doc.setTextColor(70,70,70);
+    const lines = doc.splitTextToSize("Nota: " + intest.nota, pageW - 2*M);
+    doc.text(lines, M, fy); fy += lines.length*12 + 8;
+  }
+  doc.setFontSize(8); doc.setTextColor(150,150,150);
+  doc.text("Documento generato automaticamente — verificare gli importi prima dell'invio.", M, fy);
+
+  // Attachment appendix (portrait): 6 per page (2 columns × 3 rows), numbered
+  if (withPhotos && withFoto.length) {
+    const PW = 595.28, PH = 841.89; // portrait A4 (pt)
+    const cols = 2, rows = 3, perPage = cols*rows;
+    const gapX = 16, gapY = 18;
+    const colW = (PW - 2*M - gapX) / cols;
+    const titleY = 56;
+    const gridTop = titleY + 24;
+    const rowH = ((PH - M) - gridTop - gapY*(rows-1)) / rows;
+    const capH = 26;
+    const imgAreaH = rowH - capH;
+    for (let i=0; i<withFoto.length; i++) {
+      const onPage = i % perPage;
+      if (onPage === 0) {
+        doc.addPage("a4","portrait");
+        doc.setFont("helvetica","bold"); doc.setFontSize(14); doc.setTextColor(30,43,36);
+        doc.text("Allegati — ricevute", M, titleY);
+        doc.setDrawColor(30,43,36); doc.setLineWidth(1); doc.line(M, titleY+8, PW-M, titleY+8);
+      }
+      const col = onPage % cols, row = Math.floor(onPage / cols);
+      const cellX = M + col*(colW+gapX);
+      const cellY = gridTop + row*(rowH+gapY);
+      try {
+        const img = await loadImage(withFoto[i].foto);
+        const ar = (img.naturalWidth||1) / (img.naturalHeight||1);
+        let iw = colW, ih = iw/ar;
+        if (ih > imgAreaH) { ih = imgAreaH; iw = ih*ar; }
+        const ix = cellX + (colW - iw)/2;
+        doc.addImage(withFoto[i].foto, "JPEG", ix, cellY, iw, ih);
+        doc.setDrawColor(210,210,210); doc.setLineWidth(0.5); doc.rect(ix, cellY, iw, ih);
+      } catch (e) { /* skip unreadable image */ }
+      doc.setFont("helvetica","bold"); doc.setFontSize(9); doc.setTextColor(30,43,36);
+      const cap = "#" + (i+1) + "  " + dItalian(withFoto[i].date) + " · " + (withFoto[i].merchant||"");
+      doc.text(doc.splitTextToSize(cap, colW).slice(0,2), cellX, cellY + imgAreaH + 12);
+    }
+  }
+
+  doc.save("nota-spese-" + (period==="all" ? "tutte" : period) + ".pdf");
+}
+
+/* ----------------------------- Main app ----------------------------- */
+function App() {
+  const [config, setConfig] = useState(loadConfig());
+  const [status, setStatus] = useState("init"); // init|config|connecting|error|ready
+  const [connErr, setConnErr] = useState("");
+  const [spese, setSpese] = useState([]);
+  const [intest, setIntest] = useState({ nome:"", piva:"", nota:"", destNome:"", destPiva:"", destInd:"" });
+  const [period, setPeriod] = useState(todayISO().slice(0,7));
+  const [showForm, setShowForm] = useState(false);
+  const [editing, setEditing] = useState(null);
+  const [showSettings, setShowSettings] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [showPdfOpts, setShowPdfOpts] = useState(false);
+  const [showDelMonth, setShowDelMonth] = useState(false);
+  const runPdf = (withPhotos) => {
+    setShowPdfOpts(false);
+    generatePdf({ intest, period, expenses: filtered, totals, withPhotos }).catch(e => alert("Errore nella generazione del PDF: " + (e.message||e)));
+  };
+  const onDeleteMonth = async () => {
+    try { await dbDeleteMonth(period); await refresh(); setShowDelMonth(false); }
+    catch (e) { alert("Eliminazione non riuscita: " + (e.message||e)); }
+  };
+
+  useEffect(() => {
+    if (!config.tursoUrl || !config.tursoToken) { setStatus("config"); return; }
+    let cancelled = false;
+    (async () => {
+      setStatus("connecting"); setConnErr("");
+      try {
+        await connectDb(config.tursoUrl, config.tursoToken);
+        const [rows, it] = [await dbLoadSpese(), await dbLoadIntest()];
+        if (cancelled) return;
+        setSpese(rows); setIntest(it); setStatus("ready");
+      } catch (e) {
+        if (!cancelled) { setConnErr(String(e.message||e)); setStatus("error"); }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [config.tursoUrl, config.tursoToken]);
+
+  const refresh = async () => { setSpese(await dbLoadSpese()); };
+
+  const onSaveSpesa = async (data) => {
+    setBusy(true);
+    try {
+      const rec = editing ? { ...data, id: editing.id } : { ...data, id: uid() };
+      await dbUpsertSpesa(rec);
+      await refresh();
+      setShowForm(false); setEditing(null);
+    } catch (e) { alert("Salvataggio non riuscito: " + (e.message||e)); }
+    finally { setBusy(false); }
+  };
+  const onDelete = async (id) => {
+    if (!confirm("Eliminare questa spesa?")) return;
+    try { await dbDeleteSpesa(id); await refresh(); } catch (e) { alert("Eliminazione non riuscita: " + (e.message||e)); }
+  };
+  const onSaveSettings = async (newCfg, newIntest) => {
+    saveConfig(newCfg);
+    const credsChanged = newCfg.tursoUrl !== config.tursoUrl || newCfg.tursoToken !== config.tursoToken;
+    if (status === "ready" && !credsChanged) {
+      try { await dbSaveIntest(newIntest); setIntest(newIntest); } catch (e) { alert("Impossibile salvare l'intestazione: " + (e.message||e)); }
+    }
+    setShowSettings(false);
+    setConfig(newCfg); // triggers reconnect if creds changed
+  };
+
+  const months = useMemo(() => {
+    const set = new Set(spese.map(e => (e.date||"").slice(0,7)).filter(Boolean));
+    return ["all", ...Array.from(set).sort().reverse()];
+  }, [spese]);
+  const filtered = useMemo(() => {
+    const list = period==="all" ? spese : spese.filter(e => (e.date||"").startsWith(period));
+    return [...list].sort((a,b)=>(b.date||"").localeCompare(a.date||""));
+  }, [spese, period]);
+  const totals = useMemo(() => {
+    const total = filtered.reduce((s,e)=>s+(Number(e.amount)||0),0);
+    const iva = filtered.reduce((s,e)=>s+(Number(e.iva)||0),0);
+    const byCat = {}; filtered.forEach(e=>{ byCat[e.category]=(byCat[e.category]||0)+(Number(e.amount)||0); });
+    return { total, iva, imponibile: total-iva, count: filtered.length, byCat };
+  }, [filtered]);
+
+  /* ---- Non-ready states ---- */
+  if (status === "config" || status === "error") {
+    return <ConfigScreen config={config} error={status==="error"?connErr:""} onSave={(c)=>{ saveConfig(c); setConfig(c); }} />;
+  }
+  if (status === "init" || status === "connecting") {
+    return (
+      <div style={{ minHeight:"100vh", background:C.bg, display:"grid", placeItems:"center", fontFamily:sans, color:C.muted }}>
+        <div style={{ textAlign:"center" }}>
+          <Spinner size={26} color={C.green} />
+          <div style={{ marginTop:10, fontSize:14 }}>Connessione al database…</div>
+        </div>
+      </div>
+    );
+  }
+
+  /* ---- Ready ---- */
+  return (
+    <div className="screen" style={{ minHeight:"100vh", background:C.bg, fontFamily:sans, color:C.ink }}>
+      <header style={{ background:C.ink, color:C.paper, padding:"calc(18px + env(safe-area-inset-top)) 20px 18px" }}>
+        <div style={{ maxWidth:860, margin:"0 auto", display:"flex", alignItems:"center", justifyContent:"space-between", gap:12 }}>
+          <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+            <Icon name="receipt" size={22} color="#C9D3C2" />
+            <div>
+              <div style={{ fontFamily:serif, fontSize:20, fontWeight:600, lineHeight:1 }}>Nota Spese</div>
+              <div style={{ fontSize:11, color:"#A9B5A6" }}>Turso · sincronizzato · {APP_VERSION}</div>
+            </div>
+          </div>
+          <button onClick={()=>setShowSettings(true)} title="Impostazioni" style={{ background:"transparent", border:"1px solid #3a4a41", color:"#C9D3C2", borderRadius:8, padding:8, display:"grid", placeItems:"center" }}>
+            <Icon name="settings" size={18} />
+          </button>
+        </div>
+      </header>
+
+      <main style={{ maxWidth:860, margin:"0 auto", padding:"18px 16px 120px" }}>
+        <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:16, flexWrap:"wrap" }}>
+          <div style={{ position:"relative" }}>
+            <select value={period} onChange={e=>setPeriod(e.target.value)} style={{ appearance:"none", padding:"10px 34px 10px 14px", border:`1px solid ${C.line}`, borderRadius:999, background:C.surface, color:C.ink, fontSize:16, fontWeight:600, fontFamily:serif }}>
+              {months.map(m=><option key={m} value={m}>{monthLabel(m)}</option>)}
+            </select>
+            <Icon name="chevron" size={16} color={C.muted} style={{ position:"absolute", right:12, top:11, pointerEvents:"none" }} />
+          </div>
+          <button onClick={()=> filtered.some(e=>e.foto) ? setShowPdfOpts(true) : runPdf(false)} disabled={!filtered.length} className="lift" style={{ marginLeft:"auto", display:"inline-flex", alignItems:"center", gap:7, background:filtered.length?C.green:C.line, color:"#fff", border:"none", borderRadius:999, padding:"9px 16px", fontSize:14, fontWeight:600, boxShadow:filtered.length?"0 2px 8px rgba(47,111,78,.25)":"none" }}>
+            <Icon name="file" size={16} /> Genera PDF
+          </button>
+        </div>
+
+        <div style={{ background:C.surface, border:`1px solid ${C.line}`, borderRadius:14, overflow:"hidden", marginBottom:18 }}>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr" }}>
+            <Stat label="Totale periodo" value={euro(totals.total)} big />
+            <Stat label="di cui IVA" value={euro(totals.iva)} color={C.amber} />
+            <Stat label="Spese" value={String(totals.count)} />
+          </div>
+          {totals.count>0 && (
+            <div style={{ borderTop:`1px solid ${C.line}`, padding:"10px 16px", display:"flex", flexWrap:"wrap", gap:8, background:C.paper }}>
+              {Object.entries(totals.byCat).sort((a,b)=>b[1]-a[1]).map(([cat,v])=>(
+                <span key={cat} style={{ fontSize:12, color:C.ink, background:"#fff", border:`1px solid ${C.line}`, borderRadius:999, padding:"3px 10px" }}>
+                  {cat} · <span style={{ fontFamily:mono, color:C.muted }}>{euro(v)}</span>
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {period!=="all" && filtered.length>0 && (
+          <div style={{ display:"flex", justifyContent:"flex-end", marginTop:-8, marginBottom:14 }}>
+            <button onClick={()=>setShowDelMonth(true)} className="lift" style={{ display:"inline-flex", alignItems:"center", gap:6, background:"transparent", color:C.red, border:"none", padding:"6px 4px", fontSize:13, fontWeight:600 }}>
+              <Icon name="trash" size={14} /> Elimina tutte le spese di {monthLabel(period)}
+            </button>
+          </div>
+        )}
+
+        {filtered.length===0 ? (
+          <div style={{ textAlign:"center", padding:"48px 20px", color:C.muted }}>
+            <Icon name="receipt" size={34} color={C.line} style={{ marginBottom:10 }} />
+            <p style={{ margin:0, fontSize:15 }}>Nessuna spesa in questo periodo.</p>
+            <p style={{ margin:"4px 0 0", fontSize:13 }}>Aggiungi una spesa o carica la foto di una ricevuta.</p>
+          </div>
+        ) : (
+          <ExpenseList
+            expenses={filtered}
+            grouped={period==="all"}
+            onEdit={(e)=>{ setEditing(e); setShowForm(true); }}
+            onDelete={onDelete}
+          />
+        )}
+      </main>
+
+      <button onClick={()=>{ setEditing(null); setShowForm(true); }} className="lift" style={{ position:"fixed", right:20, bottom:"calc(24px + env(safe-area-inset-bottom))", background:C.green, color:"#fff", border:"none", borderRadius:999, padding:"14px 20px", fontSize:15, fontWeight:600, display:"inline-flex", alignItems:"center", gap:8, boxShadow:"0 6px 20px rgba(36,90,63,.4)" }}>
+        <Icon name="plus" size={18} /> Nuova spesa
+      </button>
+
+      {showForm && <ExpenseForm initial={editing} config={config} busy={busy} onCancel={()=>{ setShowForm(false); setEditing(null); }} onSave={onSaveSpesa} />}
+      {showSettings && <SettingsModal config={config} intest={intest} connected={status==="ready"} onCancel={()=>setShowSettings(false)} onSave={onSaveSettings} />}
+      {showPdfOpts && (
+        <ModalShell title="Scarica PDF" onCancel={()=>setShowPdfOpts(false)}>
+          <p style={{ marginTop:0, fontSize:14, color:C.muted }}>Vuoi includere le foto delle ricevute in appendice al PDF?</p>
+          <button onClick={()=>runPdf(true)} className="lift" style={{ width:"100%", background:C.green, color:"#fff", border:"none", borderRadius:10, padding:13, fontSize:15, fontWeight:600, marginBottom:10, display:"inline-flex", justifyContent:"center", alignItems:"center", gap:8 }}>
+            <Icon name="file" size={16} /> Con foto allegate
+          </button>
+          <button onClick={()=>runPdf(false)} style={{ width:"100%", background:"#fff", color:C.ink, border:`1px solid ${C.line}`, borderRadius:10, padding:13, fontSize:15, fontWeight:600 }}>
+            Senza foto
+          </button>
+        </ModalShell>
+      )}
+      {showDelMonth && (
+        <ModalShell title="Elimina mese" onCancel={()=>setShowDelMonth(false)}>
+          <p style={{ marginTop:0, fontSize:14, color:C.ink }}>
+            Stai per eliminare <strong>{filtered.length} spese</strong> di <strong>{monthLabel(period)}</strong>. L'operazione è definitiva e cancella anche le foto allegate.
+          </p>
+          <button onClick={onDeleteMonth} className="lift" style={{ width:"100%", background:C.red, color:"#fff", border:"none", borderRadius:10, padding:13, fontSize:15, fontWeight:600, marginBottom:10, display:"inline-flex", justifyContent:"center", alignItems:"center", gap:8 }}>
+            <Icon name="trash" size={16} /> Elimina {filtered.length} spese
+          </button>
+          <button onClick={()=>setShowDelMonth(false)} style={{ width:"100%", background:"#fff", color:C.ink, border:`1px solid ${C.line}`, borderRadius:10, padding:13, fontSize:15, fontWeight:600 }}>
+            Annulla
+          </button>
+        </ModalShell>
+      )}
+    </div>
+  );
+}
+
+/* ----------------------------- Expense list (flat or grouped by month) ----------------------------- */
+function SpesaRow({ e, onEdit, onDelete }) {
+  return (
+    <div className="lift" style={{ background:C.surface, border:`1px solid ${C.line}`, borderRadius:12, padding:"12px 14px", display:"flex", alignItems:"center", gap:12 }}>
+      <div style={{ width:44, textAlign:"center", flexShrink:0 }}>
+        <div style={{ fontFamily:mono, fontSize:17, fontWeight:700, color:C.ink, lineHeight:1 }}>{(e.date||"").slice(8,10)||"—"}</div>
+        <div style={{ fontSize:10, color:C.muted, textTransform:"uppercase" }}>{MNAMES[+(e.date||"").slice(5,7)-1]||""}</div>
+      </div>
+      <div style={{ flex:1, minWidth:0 }}>
+        <div style={{ fontWeight:600, fontSize:15, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{e.merchant||"—"}</div>
+        <div style={{ fontSize:12, color:C.muted, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{e.category}{e.description?` · ${e.description}`:""}</div>
+      </div>
+      <div style={{ textAlign:"right", flexShrink:0 }}>
+        <div style={{ fontFamily:mono, fontWeight:700, fontSize:15 }}>{euro(e.amount)}</div>
+        {Number(e.iva)>0 && <div style={{ fontSize:11, color:C.amber }}>IVA {euro(e.iva)}</div>}
+      </div>
+      <div style={{ display:"flex", gap:4, flexShrink:0 }}>
+        <IconBtn onClick={()=>onEdit(e)} title="Modifica"><Icon name="pencil" size={15} /></IconBtn>
+        <IconBtn onClick={()=>onDelete(e.id)} title="Elimina" danger><Icon name="trash" size={15} /></IconBtn>
+      </div>
+    </div>
+  );
+}
+function ExpenseList({ expenses, grouped, onEdit, onDelete }) {
+  if (!grouped) {
+    return (
+      <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+        {expenses.map(e => <SpesaRow key={e.id} e={e} onEdit={onEdit} onDelete={onDelete} />)}
+      </div>
+    );
+  }
+  const groups = {};
+  expenses.forEach(e => { const k=(e.date||"").slice(0,7) || "0000-00"; (groups[k]=groups[k]||[]).push(e); });
+  const keys = Object.keys(groups).sort().reverse();
+  return (
+    <div style={{ display:"flex", flexDirection:"column", gap:22 }}>
+      {keys.map(k => {
+        const sub = groups[k].reduce((s,e)=>s+(Number(e.amount)||0),0);
+        const label = k==="0000-00" ? "Senza data" : monthLabel(k);
+        return (
+          <div key={k}>
+            <div style={{ display:"flex", alignItems:"baseline", justifyContent:"space-between", padding:"0 2px 8px", borderBottom:`1px solid ${C.line}`, marginBottom:10 }}>
+              <span style={{ fontFamily:serif, fontSize:16, fontWeight:600, textTransform:"capitalize" }}>{label}</span>
+              <span style={{ fontFamily:mono, fontSize:14, fontWeight:700, color:C.green }}>{euro(sub)}</span>
+            </div>
+            <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+              {groups[k].map(e => <SpesaRow key={e.id} e={e} onEdit={onEdit} onDelete={onDelete} />)}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ----------------------------- Config / first-run screen ----------------------------- */
+function ConfigScreen({ config, error, onSave }) {
+  const [c, setC] = useState(config);
+  const set = (k,v)=>setC(p=>({ ...p, [k]:v }));
+  const canSave = c.tursoUrl.trim() && c.tursoToken.trim();
+  return (
+    <div style={{ minHeight:"100vh", background:C.bg, fontFamily:sans, color:C.ink, display:"flex", alignItems:"center", justifyContent:"center", padding:16 }}>
+      <div style={{ background:C.surface, border:`1px solid ${C.line}`, borderRadius:16, maxWidth:460, width:"100%", padding:24, boxShadow:"0 8px 30px rgba(0,0,0,.08)" }}>
+        <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:6 }}>
+          <Icon name="db" size={22} color={C.green} />
+          <h1 style={{ margin:0, fontFamily:serif, fontSize:22 }}>Collega il database</h1>
+        </div>
+        <p style={{ fontSize:13, color:C.muted, marginTop:0 }}>Inserisci le credenziali del tuo database Turso. Restano salvate solo su questo dispositivo. Vedi il README per crearle.</p>
+        {error && (
+          <div style={{ display:"flex", gap:8, alignItems:"flex-start", background:"#FBEEE9", border:"1px solid #E9C4B6", color:"#8A3A22", borderRadius:10, padding:"10px 12px", margin:"12px 0", fontSize:13 }}>
+            <Icon name="alert" size={16} style={{ flexShrink:0, marginTop:1 }} /> <span>{error}</span>
+          </div>
+        )}
+        <Field label="Turso Database URL" hint="es. libsql://nome-tuoaccount.turso.io"><input value={c.tursoUrl} onChange={e=>set("tursoUrl",e.target.value)} placeholder="libsql://…" style={inputStyle} /></Field>
+        <Field label="Turso Auth Token"><input type="password" value={c.tursoToken} onChange={e=>set("tursoToken",e.target.value)} placeholder="ey…" style={inputStyle} /></Field>
+        <Field label="OpenRouter API Key" hint="per la lettura AI delle ricevute (facoltativa ora)"><input type="password" value={c.orKey} onChange={e=>set("orKey",e.target.value)} placeholder="sk-or-…" style={inputStyle} /></Field>
+        <Field label="Modello AI" hint="es. openai/gpt-4o-mini · google/gemini-2.5-flash"><input value={c.orModel} onChange={e=>set("orModel",e.target.value)} style={inputStyle} /></Field>
+        <button disabled={!canSave} onClick={()=>onSave(c)} style={{ width:"100%", background:canSave?C.green:C.line, color:"#fff", border:"none", borderRadius:10, padding:13, fontSize:15, fontWeight:600, marginTop:4 }}>Connetti</button>
+      </div>
+    </div>
+  );
+}
+
+/* ----------------------------- Expense form ----------------------------- */
+function ExpenseForm({ initial, config, busy, onCancel, onSave }) {
+  const [f, setF] = useState(initial || { date:todayISO(), merchant:"", category:"Vitto", description:"", amount:"", iva:"", rate:"", method:"Carta", km:"", tariffa:"", foto:"" });
+  const [scanning, setScanning] = useState(false);
+  const [scanErr, setScanErr] = useState("");
+  const fileRef = useRef(null);
+  const set = (k,v)=>setF(p=>({ ...p, [k]:v }));
+
+  const handleFile = async (file) => {
+    if (!file) return;
+    setScanErr(""); setScanning(true);
+    const isPdf = file.type === "application/pdf" || /\.pdf$/i.test(file.name || "");
+    let payload;
+    // Step 1: read the file and, for images, keep the photo (with fallback if resize fails)
+    try {
+      if (isPdf) {
+        const b64 = await fileToBase64(file);
+        payload = { isPdf:true, dataUrl:"data:application/pdf;base64,"+b64, filename:file.name||"documento.pdf" };
+        try { const img = await pdfToImage(file); setF(p => ({ ...p, foto: img })); } catch (e) { /* no preview image for this PDF */ }
+      } else {
+        let dataUrl;
+        try { dataUrl = await resizeImage(file); }
+        catch { const b64 = await fileToBase64(file); dataUrl = "data:"+(file.type||"image/jpeg")+";base64,"+b64; }
+        setF(p => ({ ...p, foto: dataUrl }));
+        payload = { isPdf:false, dataUrl };
+      }
+    } catch (e) {
+      setScanErr("Non riesco a leggere il file. Riprova o inserisci i dati a mano.");
+      setScanning(false);
+      return;
+    }
+    // Step 2: AI extraction (optional) — the photo is already attached
+    try {
+      const d = await scanReceipt(payload, config);
+      setF(p => ({ ...p,
+        date: d.data || p.date, merchant: d.esercente || p.merchant,
+        amount: d.importo!=null && d.importo!=="" ? String(d.importo) : p.amount,
+        iva: d.iva!=null && d.iva!=="" ? String(d.iva) : p.iva,
+        rate: d.aliquota!=null && d.aliquota!=="" ? String(d.aliquota) : p.rate,
+        category: CATEGORIES.includes(d.categoria) ? d.categoria : p.category,
+        method: METHODS.includes(d.metodo) ? d.metodo : p.method,
+        description: d.descrizione || p.description,
+      }));
+    } catch (e) {
+      setScanErr((isPdf ? "PDF allegato. " : "Foto allegata. ") + "Non sono riuscito a leggere i dati: inseriscili a mano.");
+    } finally {
+      setScanning(false);
+    }
+  };
+
+  const isKm = f.category === "Rimborso km";
+  const setCategory = (v) => setF(p => {
+    if (v !== "Rimborso km") return { ...p, category:v };
+    const next = { ...p, category:v, iva:"0", rate:"0" };
+    if (!p.tariffa && config && config.kmTariffa) {
+      next.tariffa = String(config.kmTariffa);
+      const tot = (Number(p.km)||0) * (Number(config.kmTariffa)||0);
+      if (tot) next.amount = tot.toFixed(2);
+    }
+    return next;
+  });
+  const setKm = (v) => { const km=v.replace(",","."); setF(p=>{ const tot=(Number(km)||0)*(Number(p.tariffa)||0); return { ...p, km, amount: tot?tot.toFixed(2):"", iva:"0", rate:"0" }; }); };
+  const setTariffa = (v) => { const tariffa=v.replace(",","."); setF(p=>{ const tot=(Number(p.km)||0)*(Number(tariffa)||0); return { ...p, tariffa, amount: tot?tot.toFixed(2):"", iva:"0", rate:"0" }; }); };
+  const valid = f.date && (isKm ? (Number(f.km)>0 && Number(f.tariffa)>0) : (f.merchant.trim() && f.amount!=="" && !isNaN(Number(f.amount))));
+  return (
+    <ModalShell title={initial?"Modifica spesa":"Nuova spesa"} onCancel={onCancel}
+      footer={
+        <button disabled={!valid || busy} onClick={()=>onSave({ ...f, merchant: f.merchant.trim() || (isKm ? "Rimborso chilometrico" : f.merchant), amount:Number(f.amount)||0, iva:Number(f.iva)||0, rate:Number(f.rate)||0, km:Number(f.km)||0, tariffa:Number(f.tariffa)||0 })}
+          style={{ width:"100%", background:(valid&&!busy)?C.green:C.line, color:"#fff", border:"none", borderRadius:10, padding:13, fontSize:15, fontWeight:600, display:"inline-flex", justifyContent:"center", gap:8, alignItems:"center" }}>
+          {busy ? <><Spinner size={16} /> Salvo…</> : (initial?"Salva modifiche":"Aggiungi spesa")}
+        </button>
+      }>
+      <input ref={fileRef} type="file" accept="image/*,application/pdf,.pdf" style={{ display:"none" }} onChange={e=>handleFile(e.target.files&&e.target.files[0])} />
+      <button onClick={()=>fileRef.current&&fileRef.current.click()} disabled={scanning}
+        style={{ width:"100%", border:`1.5px dashed ${C.green}`, background:"rgba(47,111,78,.06)", borderRadius:12, padding:16, marginBottom:18, color:C.greenDark, display:"flex", alignItems:"center", justifyContent:"center", gap:10, fontSize:14, fontWeight:600 }}>
+        {scanning ? <><Spinner size={18} /> Sto leggendo il documento…</> : <><Icon name="camera" size={18} /> Carica una foto o un PDF</>}
+      </button>
+      {f.foto && (
+        <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:16, padding:10, background:"#fff", border:`1px solid ${C.line}`, borderRadius:10 }}>
+          <img src={f.foto} alt="ricevuta" style={{ width:48, height:48, objectFit:"cover", borderRadius:6, border:`1px solid ${C.line}` }} />
+          <span style={{ flex:1, fontSize:13, color:C.muted }}>Allegato alla spesa</span>
+          <IconBtn onClick={()=>set("foto","")} title="Rimuovi foto" danger><Icon name="trash" size={15} /></IconBtn>
+        </div>
+      )}
+      {scanErr && (
+        <div style={{ display:"flex", gap:8, alignItems:"flex-start", background:"#FBEEE9", border:"1px solid #E9C4B6", color:"#8A3A22", borderRadius:10, padding:"10px 12px", marginBottom:16, fontSize:13 }}>
+          <Icon name="alert" size={16} style={{ flexShrink:0, marginTop:1 }} /> <span>{scanErr}</span>
+        </div>
+      )}
+      <div className="grid-2">
+        <Field label="Data"><input type="date" value={f.date} onChange={e=>set("date",e.target.value)} style={inputStyle} /></Field>
+        <Field label="Metodo"><select value={f.method} onChange={e=>set("method",e.target.value)} style={inputStyle}>{METHODS.map(m=><option key={m}>{m}</option>)}</select></Field>
+      </div>
+      <Field label="Categoria"><select value={f.category} onChange={e=>setCategory(e.target.value)} style={inputStyle}>{CATEGORIES.map(c=><option key={c}>{c}</option>)}</select></Field>
+      <Field label={isKm ? "Tratta / destinazione" : "Esercente / fornitore"}><input value={f.merchant} onChange={e=>set("merchant",e.target.value)} placeholder={isKm ? "Es. Milano–Roma A/R" : "Es. Trattoria da Mario"} style={inputStyle} /></Field>
+      <Field label="Descrizione"><input value={f.description} onChange={e=>set("description",e.target.value)} placeholder="Facoltativa" style={inputStyle} /></Field>
+      {isKm ? (
+        <>
+          <div className="grid-2">
+            <Field label="Km percorsi"><input inputMode="decimal" value={f.km} onChange={e=>setKm(e.target.value)} placeholder="0" style={{ ...inputStyle, fontFamily:mono }} /></Field>
+            <Field label="Tariffa €/km" hint="usa la tua tariffa applicabile"><input inputMode="decimal" value={f.tariffa} onChange={e=>setTariffa(e.target.value)} placeholder="0,45" style={{ ...inputStyle, fontFamily:mono }} /></Field>
+          </div>
+          <Field label="Totale rimborso €" hint="calcolato: km × tariffa (senza IVA)"><input readOnly value={f.amount} placeholder="0.00" style={{ ...inputStyle, fontFamily:mono, background:C.paper }} /></Field>
+        </>
+      ) : (
+        <div className="grid-3">
+          <Field label="Totale €"><input inputMode="decimal" value={f.amount} onChange={e=>set("amount",e.target.value.replace(",","."))} placeholder="0.00" style={{ ...inputStyle, fontFamily:mono }} /></Field>
+          <Field label="IVA €"><input inputMode="decimal" value={f.iva} onChange={e=>set("iva",e.target.value.replace(",","."))} placeholder="0.00" style={{ ...inputStyle, fontFamily:mono }} /></Field>
+          <Field label="Aliquota %"><input inputMode="decimal" value={f.rate} onChange={e=>set("rate",e.target.value.replace(",","."))} placeholder="22" style={{ ...inputStyle, fontFamily:mono }} /></Field>
+        </div>
+      )}
+    </ModalShell>
+  );
+}
+
+/* ----------------------------- Settings ----------------------------- */
+function SettingsModal({ config, intest, connected, onCancel, onSave }) {
+  const [c, setC] = useState(config);
+  const [it, setIt] = useState(intest);
+  const setCfg = (k,v)=>setC(p=>({ ...p, [k]:v }));
+  const setInt = (k,v)=>setIt(p=>({ ...p, [k]:v }));
+  return (
+    <ModalShell title="Impostazioni" onCancel={onCancel}
+      footer={<button onClick={()=>onSave(c, it)} style={{ width:"100%", background:C.green, color:"#fff", border:"none", borderRadius:10, padding:13, fontSize:15, fontWeight:600 }}>Salva</button>}>
+      <h3 style={{ fontFamily:serif, fontSize:15, margin:"0 0 10px" }}>Connessione</h3>
+      <Field label="Turso Database URL"><input value={c.tursoUrl} onChange={e=>setCfg("tursoUrl",e.target.value)} style={inputStyle} /></Field>
+      <Field label="Turso Auth Token"><input type="password" value={c.tursoToken} onChange={e=>setCfg("tursoToken",e.target.value)} style={inputStyle} /></Field>
+      <Field label="OpenRouter API Key"><input type="password" value={c.orKey} onChange={e=>setCfg("orKey",e.target.value)} style={inputStyle} /></Field>
+      <Field label="Modello AI" hint="es. openai/gpt-4o-mini · google/gemini-2.5-flash"><input value={c.orModel} onChange={e=>setCfg("orModel",e.target.value)} style={inputStyle} /></Field>
+
+      <h3 style={{ fontFamily:serif, fontSize:15, margin:"18px 0 10px" }}>Rimborsi chilometrici</h3>
+      <Field label="Tariffa €/km predefinita" hint="precompila i nuovi rimborsi km"><input inputMode="decimal" value={c.kmTariffa} onChange={e=>setCfg("kmTariffa",e.target.value.replace(",","."))} placeholder="0,57" style={{ ...inputStyle, fontFamily:mono }} /></Field>
+
+      <h3 style={{ fontFamily:serif, fontSize:15, margin:"18px 0 10px" }}>Intestatario della nota</h3>
+      {!connected && <p style={{ fontSize:12, color:C.muted, marginTop:0 }}>Disponibile una volta connessi al database.</p>}
+      <Field label="Nome / ragione sociale"><input disabled={!connected} value={it.nome} onChange={e=>setInt("nome",e.target.value)} placeholder="Mario Rossi" style={inputStyle} /></Field>
+      <Field label="P.IVA / Codice fiscale"><input disabled={!connected} value={it.piva} onChange={e=>setInt("piva",e.target.value)} placeholder="IT01234567890" style={inputStyle} /></Field>
+
+      <h3 style={{ fontFamily:serif, fontSize:15, margin:"18px 0 10px" }}>Destinatario del rimborso</h3>
+      <p style={{ fontSize:12, color:C.muted, marginTop:0 }}>L'azienda a cui chiedi il rimborso. Compare come "Spett.le" nel PDF.</p>
+      <Field label="Ragione sociale"><input disabled={!connected} value={it.destNome} onChange={e=>setInt("destNome",e.target.value)} placeholder="Azienda S.r.l." style={inputStyle} /></Field>
+      <Field label="P.IVA / Codice fiscale"><input disabled={!connected} value={it.destPiva} onChange={e=>setInt("destPiva",e.target.value)} placeholder="IT09876543210" style={inputStyle} /></Field>
+      <Field label="Indirizzo"><input disabled={!connected} value={it.destInd} onChange={e=>setInt("destInd",e.target.value)} placeholder="Via Roma 1, 20100 Milano" style={inputStyle} /></Field>
+
+      <h3 style={{ fontFamily:serif, fontSize:15, margin:"18px 0 10px" }}>Altro</h3>
+      <Field label="Nota per il commercialista"><textarea disabled={!connected} value={it.nota} onChange={e=>setInt("nota",e.target.value)} rows={3} placeholder="Facoltativa" style={{ ...inputStyle, resize:"vertical" }} /></Field>
+    </ModalShell>
+  );
+}
+
+/* ----------------------------- Print / PDF ----------------------------- */
+function PrintReport({ intest, period, expenses, totals }) {
+  const generated = new Date().toLocaleDateString("it-IT");
+  return (
+    <div className="print-area" style={{ padding:"6px 4px", color:"#111", fontFamily:sans, fontSize:12, background:"#fff" }}>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-end", borderBottom:"2px solid #111", paddingBottom:10, marginBottom:6 }}>
+        <div>
+          <div style={{ fontFamily:serif, fontSize:22, fontWeight:700 }}>Nota Spese</div>
+          <div style={{ fontSize:13, color:"#444" }}>{monthLabel(period)}</div>
+        </div>
+        <div style={{ textAlign:"right", fontSize:11, lineHeight:1.5 }}>
+          {intest.nome && <div style={{ fontWeight:700 }}>{intest.nome}</div>}
+          {intest.piva && <div>{intest.piva}</div>}
+          <div style={{ color:"#666" }}>Emessa il {generated}</div>
+        </div>
+      </div>
+      <table style={{ width:"100%", borderCollapse:"collapse", marginTop:14 }}>
+        <thead>
+          <tr style={{ borderBottom:"1px solid #111", textAlign:"left" }}>
+            {["Data","Esercente","Categoria","Descrizione","Metodo"].map(h=><th key={h} style={{ padding:"6px", fontSize:10, textTransform:"uppercase" }}>{h}</th>)}
+            <th style={{ padding:"6px", fontSize:10, textAlign:"right" }}>Imponibile</th>
+            <th style={{ padding:"6px", fontSize:10, textAlign:"right" }}>IVA</th>
+            <th style={{ padding:"6px", fontSize:10, textAlign:"right" }}>Totale</th>
+          </tr>
+        </thead>
+        <tbody>
+          {[...expenses].sort((a,b)=>(a.date||"").localeCompare(b.date||"")).map(e=>{
+            const imp = (Number(e.amount)||0)-(Number(e.iva)||0);
+            return (
+              <tr key={e.id} style={{ borderBottom:"1px solid #ddd" }}>
+                <td style={{ padding:"6px", fontFamily:mono }}>{dItalian(e.date)}</td>
+                <td style={{ padding:"6px" }}>{e.merchant}</td>
+                <td style={{ padding:"6px" }}>{e.category}</td>
+                <td style={{ padding:"6px", color:"#555" }}>{e.description}</td>
+                <td style={{ padding:"6px" }}>{e.method}</td>
+                <td style={{ padding:"6px", textAlign:"right", fontFamily:mono }}>{euro(imp)}</td>
+                <td style={{ padding:"6px", textAlign:"right", fontFamily:mono }}>{euro(e.iva)}</td>
+                <td style={{ padding:"6px", textAlign:"right", fontFamily:mono, fontWeight:700 }}>{euro(e.amount)}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+        <tfoot>
+          <tr style={{ borderTop:"2px solid #111", fontWeight:700 }}>
+            <td colSpan={5} style={{ padding:"8px 6px", textTransform:"uppercase", fontSize:11 }}>Totali ({totals.count} spese)</td>
+            <td style={{ padding:"8px 6px", textAlign:"right", fontFamily:mono }}>{euro(totals.imponibile)}</td>
+            <td style={{ padding:"8px 6px", textAlign:"right", fontFamily:mono }}>{euro(totals.iva)}</td>
+            <td style={{ padding:"8px 6px", textAlign:"right", fontFamily:mono }}>{euro(totals.total)}</td>
+          </tr>
+        </tfoot>
+      </table>
+      {intest.nota && <div style={{ marginTop:20, paddingTop:10, borderTop:"1px solid #ccc", fontSize:11, color:"#444" }}><strong>Nota:</strong> {intest.nota}</div>}
+      <div style={{ marginTop:26, fontSize:10, color:"#999" }}>Documento generato automaticamente — verificare gli importi prima dell'invio.</div>
+    </div>
+  );
+}
+
+createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>
